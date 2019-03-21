@@ -305,9 +305,9 @@ void signal_handler(int)
 
 int main(int argc, char** argv)
 {
-	if(argc < 2 || argc > 3)
+	if(argc != 3)
 	{
-		std::fprintf(stderr, "usage: %s <memory> [iterations]\n", argv[0]);
+		std::fprintf(stderr, "usage: %s <memory> <iterations>\n", argv[0]);
 		std::fprintf(stderr, "memory      -- amount of memory to test, in GiB\n");
 		std::fprintf(stderr, "iterations  -- number of passes over the memory\n");
 		return 1;
@@ -319,7 +319,7 @@ int main(int argc, char** argv)
 		std::fprintf(stderr, "warning: could not obtain privileges to lock memory\n");
 
 	auto size = std::strtoull(argv[1], nullptr, 10) * GB;
-	auto iters = argc == 2 ? 0 : std::strtoull(argv[2], nullptr, 10);
+	auto iters = std::strtoull(argv[2], nullptr, 10);
 
 	auto memory = memory_allocate(size, lockperms);
 
