@@ -96,16 +96,24 @@ std::vector<memory_error> memory_validate(u8 const* memory, usize size, u8 value
 	return errors;
 }
 
-void print_memory_errors(std::vector<memory_error> const& errors, usize iter)
+void print_test_status(usize size, usize iters, progress& prog)
+{
+	auto block_goal = iters * size / BLOCK_SIZE;
+	auto fmt = "\r                                                    \r%.2f%% complete, %zu errors";
+	std::printf(fmt, (double)prog.block_count * 100 / block_goal, prog.error_count.load());
+}
+
+void print_memory_errors(std::vector<memory_error> const& errors, usize size, usize iters, usize iter, progress& prog)
 {
 	std::lock_guard<std::mutex> _(output_mutex);
 
 	for(auto error : errors)
 	{
-		auto fmt = "iteration %zu: error at address [%p]: expected=[%s], actual=[%s]\n";
+		auto fmt = "\riteration %zu: error at address [%p]: expected=[%s], actual=[%s]\n";
 		auto expected_str = std::bitset<8>(error.expected).to_string();
 		auto actual_str = std::bitset<8>(error.actual).to_string();
 		std::printf(fmt, iter, error.addr, expected_str.c_str(), actual_str.c_str());
+		print_test_status(size, iters, prog);
 	}
 }
 
@@ -118,7 +126,7 @@ void optimization_barrier()
 	std::atomic_thread_fence(std::memory_order_seq_cst);
 }
 
-void memory_test_iteration(u8* memory, usize size, usize iter, progress& prog)
+void memory_test_iteration(u8* memory, usize size, usize iters, usize iter, progress& prog)
 {
 	std::memset(memory, 0, size);
 
@@ -148,7 +156,7 @@ void memory_test_iteration(u8* memory, usize size, usize iter, progress& prog)
 		auto block_memory = memory + block * BLOCK_SIZE;
 		auto errors = memory_validate(block_memory, BLOCK_SIZE, value0, value1);
 
-		print_memory_errors(errors, iter);
+		print_memory_errors(errors, size, iters, iter, prog);
 		prog.error_count += errors.size();
 		++prog.block_count;
 	}
@@ -171,7 +179,7 @@ void memory_test(u8* memory, usize size, usize iters)
 			auto tmemory = memory + ti * tsize;
 
 			for(usize i = 0; i != iters && !stop; ++i)
-				memory_test_iteration(tmemory, tsize, i, prog);
+				memory_test_iteration(tmemory, tsize, iters, i, prog);
 		});
 
 		auto handle = workers.back().native_handle();
@@ -185,16 +193,14 @@ void memory_test(u8* memory, usize size, usize iters)
 		std::this_thread::sleep_for(std::chrono::seconds(1));
 
 		std::lock_guard<std::mutex> _(output_mutex);
-		std::printf("%.2f%% complete, %zu errors\n", (double)prog.block_count * 100 / block_goal, prog.error_count.load());
+		print_test_status(size, iters, prog);
 	}
 
 	for(auto& worker : workers)
 		worker.join();
 
 	if(stop)
-		std::printf("test cancelled, %zu errors\n", prog.error_count.load());
-	else
-		std::printf("test complete, %zu errors\n", prog.error_count.load());
+		std::printf("\ntest cancelled, %zu errors\n", prog.error_count.load());
 }
 
 std::string last_error_string()
