@@ -130,7 +130,7 @@ void memory_test_iteration(u8* memory, usize size, usize iters, usize iter, prog
 {
 	std::memset(memory, 0, size);
 
-	for(usize block = 0; block != size / BLOCK_SIZE; ++block)
+	for(usize block = 0; block != size / BLOCK_SIZE && !stop; ++block)
 	{
 		auto block_memory = memory + block * BLOCK_SIZE;
 
@@ -143,6 +143,9 @@ void memory_test_iteration(u8* memory, usize size, usize iters, usize iter, prog
 		optimization_barrier();
 	}
 
+	if(stop)
+		return;
+
 	u8 value0 = 0, value1 = 0;
 
 	for(usize i = 0; i != PATTERNS.size() - 1; ++i)
@@ -151,7 +154,7 @@ void memory_test_iteration(u8* memory, usize size, usize iters, usize iter, prog
 		value1 ^= PATTERNS[i + 1];
 	}
 
-	for(usize block = 0; block != size / BLOCK_SIZE; ++block)
+	for(usize block = 0; block != size / BLOCK_SIZE && !stop; ++block)
 	{
 		auto block_memory = memory + block * BLOCK_SIZE;
 		auto errors = memory_validate(block_memory, BLOCK_SIZE, value0, value1);
@@ -200,7 +203,7 @@ void memory_test(u8* memory, usize size, usize iters)
 		worker.join();
 
 	if(stop)
-		std::printf("\ntest cancelled, %zu errors\n", prog.error_count.load());
+		std::printf("\ntest cancelled\n");
 }
 
 std::string last_error_string()
