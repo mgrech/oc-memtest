@@ -193,7 +193,7 @@ void memory_test(u8* memory, usize size, usize iters)
 
 	while(prog.block_count != block_goal && !stop)
 	{
-		std::this_thread::sleep_for(std::chrono::seconds(1));
+		std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
 		std::lock_guard<std::mutex> _(output_mutex);
 		print_test_status(size, iters, prog);
