@@ -22,7 +22,9 @@
 #include <cstdio>
 #include <cstring>
 #include <mutex>
+#include <string>
 #include <thread>
+#include <vector>
 
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
