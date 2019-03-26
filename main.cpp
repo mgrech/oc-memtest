@@ -40,6 +40,7 @@ std::atomic_bool stop{false};
 constexpr usize KB = 1024;
 constexpr usize MB = KB * KB;
 constexpr usize GB = KB * MB;
+constexpr usize TB = KB * GB;
 
 constexpr usize BLOCK_ALIGN = KB;
 constexpr usize BLOCK_SIZE = 16 * MB;
@@ -62,6 +63,30 @@ struct memory_error
 	void const* addr;
 	u8 expected, actual;
 };
+
+std::string format_double(double d)
+{
+	char buf[16];
+	std::snprintf(buf, sizeof buf, "%.2f", d);
+	return std::string(buf);
+}
+
+std::string format_size(usize size)
+{
+	if(size < KB)
+		return std::to_string(size) + " B";
+
+	if(size < MB)
+		return format_double((double)size / KB) + " KiB";
+
+	if(size < GB)
+		return format_double((double)size / MB) + " MiB";
+
+	if(size < TB)
+		return format_double((double)size / GB) + " GiB";
+
+	return format_double((double)size / TB) + " TiB";
+}
 
 void memory_scramble(__m256i* memory, usize size, __m256i pattern)
 {
@@ -99,7 +124,7 @@ std::vector<memory_error> memory_validate(u8 const* memory, usize size, u8 value
 void print_test_status(usize size, usize iters, progress& prog)
 {
 	auto block_goal = iters * size / BLOCK_SIZE;
-	auto fmt = "\r                                                    \r%.2f%% complete, %zu errors";
+	auto fmt = "\r                                                    \r%6.2f%% complete, %zu errors";
 	std::printf(fmt, (double)prog.block_count * 100 / block_goal, prog.error_count.load());
 }
 
@@ -170,7 +195,7 @@ void memory_test(u8* memory, usize size, usize iters)
 	auto hwthreads = std::max(1u, std::thread::hardware_concurrency());
 	auto tsize = size / hwthreads / BLOCK_ALIGN * BLOCK_ALIGN;
 
-	std::printf("using %d threads with %zu MiB assigned each\n", (int)hwthreads, tsize / MB);
+	std::printf("using %d threads with %s assigned each\n", (int)hwthreads, format_size(tsize).c_str());
 
 	std::vector<std::thread> workers;
 	progress prog;
@@ -312,30 +337,81 @@ void signal_handler(int)
 	stop = true;
 }
 
-int main(int argc, char** argv)
+struct program_args
+{
+	usize memsize;
+	usize iterations;
+};
+
+bool parse_args(int argc, char** argv, program_args* args)
 {
 	if(argc != 3)
 	{
 		std::fprintf(stderr, "usage: %s <memory> <iterations>\n", argv[0]);
-		std::fprintf(stderr, "memory      -- amount of memory to test, in GiB\n");
+		std::fprintf(stderr, "memory      -- amount of memory to test, supported suffixes: K,M,G,T\n");
 		std::fprintf(stderr, "iterations  -- number of passes over the memory\n");
-		return 1;
+		return false;
 	}
+
+	auto arg_memsize = argv[1];
+	auto arg_iterations = argv[2];
+
+	args->memsize = std::strtoull(arg_memsize, &arg_memsize, 10);
+
+	if(arg_memsize == argv[1])
+		goto invalid_arg_1;
+
+	switch(*arg_memsize)
+	{
+	case 0: break;
+	case 'K': case 'k': args->memsize *= KB; break;
+	case 'M': case 'm': args->memsize *= MB; break;
+	case 'G': case 'g': args->memsize *= GB; break;
+	case 'T': case 't': args->memsize *= TB; break;
+	default:
+	invalid_arg_1:
+		std::fprintf(stderr, "invalid argument at position 1: expected positive integer (allowed suffixes: K,M,G,T)\n");
+		return false;
+	}
+
+	auto min_memsize = BLOCK_SIZE * std::max(1u, std::thread::hardware_concurrency());
+
+	if(args->memsize < min_memsize)
+	{
+		auto fmt = "memory amount specified is too small, need at least %s\n";
+		std::fprintf(stderr, fmt, format_size(min_memsize).c_str());
+		return false;
+	}
+
+	args->iterations = std::strtoull(arg_iterations, &arg_iterations, 10);
+
+	if(arg_iterations == argv[2])
+	{
+		std::fprintf(stderr, "invalid argument at position 2: expected positive integer\n");
+		return false;
+	}
+
+	return true;
+}
+
+int main(int argc, char** argv)
+{
+	program_args args = {};
+
+	if(!parse_args(argc, argv, &args))
+		return 1;
 
 	auto lockperms = obtain_lockmemory_privilege();
 
 	if(!lockperms)
 		std::fprintf(stderr, "warning: could not obtain privileges to lock memory\n");
 
-	auto size = std::strtoull(argv[1], nullptr, 10) * GB;
-	auto iters = std::strtoull(argv[2], nullptr, 10);
-
-	auto memory = memory_allocate(size, lockperms);
+	auto memory = memory_allocate(args.memsize, lockperms);
 
 	if(!memory)
 		return 1;
 
 	std::signal(SIGINT,  signal_handler);
 	std::signal(SIGTERM, signal_handler);
-	memory_test(memory, size, iters);
+	memory_test(memory, args.memsize, args.iterations);
 }
